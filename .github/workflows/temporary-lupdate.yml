@@ -1,0 +1,60 @@
+name: Temporary DP-002 lupdate
+
+on:
+  push:
+    branches:
+      - codex/tooling-lupdate-dp002
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact temporary branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pinned Python family
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install hash-locked aqt and Qt host tools
+        shell: pwsh
+        run: |
+          python -m pip download --disable-pip-version-check --only-binary ':all:' `
+            --require-hashes -r .github-aqtinstall.lock -d .aqt-wheelhouse
+          python -m venv .aqt-venv
+          .\.aqt-venv\Scripts\python.exe -m pip install --disable-pip-version-check `
+            --no-index --find-links .aqt-wheelhouse --only-binary ':all:' `
+            --require-hashes -r .github-aqtinstall.lock
+          .\.aqt-venv\Scripts\aqt.exe install-qt windows desktop 6.10.3 `
+            win64_msvc2022_64 -O .deps\Qt --timeout 30
+          if (-not (Test-Path .deps\Qt\6.10.3\msvc2022_64\bin\lupdate.exe)) {
+            throw 'lupdate.exe missing from the pinned Qt host kit'
+          }
+
+      - name: Configure catalog target and run the official updater
+        shell: pwsh
+        run: |
+          $qt = (Resolve-Path .deps\Qt\6.10.3\msvc2022_64).Path
+          $configure = @(
+            'call scripts\vs-env.bat -arch=x64 -host_arch=x64 >nul',
+            "cmake -S . -B build\release -G Ninja -DCMAKE_BUILD_TYPE=Release -DPATCHY_BUILD_APP=ON -DPATCHY_BUILD_TESTS=OFF -DCMAKE_PREFIX_PATH=`"$qt`""
+          ) -join ' && '
+          & cmd.exe /d /s /c $configure
+          if ($LASTEXITCODE -ne 0) { throw "configure failed: $LASTEXITCODE" }
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\update-translations.ps1 -Preset release
+          if ($LASTEXITCODE -ne 0) { throw "lupdate failed: $LASTEXITCODE" }
+          $matches = Select-String -Path translations\patchy_*.ts `
+            -SimpleMatch 'This PSD/PSB document is too large to import safely.'
+          if ($matches.Count -ne 8) { throw "expected source in 8 catalogs, found $($matches.Count)" }
+
+      - name: Preserve lupdate-owned catalogs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dp-002-lupdate-catalogs-${{ github.run_id }}
+          retention-days: 7
+          path: translations/patchy_*.ts
