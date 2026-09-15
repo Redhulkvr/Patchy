@@ -44,17 +44,24 @@ jobs:
             'call scripts\vs-env.bat -arch=x64 -host_arch=x64 >nul',
             "cmake -S . -B build\release -G Ninja -DCMAKE_BUILD_TYPE=Release -DPATCHY_BUILD_APP=ON -DPATCHY_BUILD_TESTS=OFF -DCMAKE_PREFIX_PATH=`"$qt`""
           ) -join ' && '
-          & cmd.exe /d /s /c $configure
+          & cmd.exe /d /s /c $configure 2>&1 | Tee-Object -FilePath configure.log
           if ($LASTEXITCODE -ne 0) { throw "configure failed: $LASTEXITCODE" }
-          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\update-translations.ps1 -Preset release
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\update-translations.ps1 -Preset release `
+            2>&1 | Tee-Object -FilePath lupdate.log
           if ($LASTEXITCODE -ne 0) { throw "lupdate failed: $LASTEXITCODE" }
           $matches = Select-String -Path translations\patchy_*.ts `
             -SimpleMatch 'This PSD/PSB document is too large to import safely.'
           if ($matches.Count -ne 8) { throw "expected source in 8 catalogs, found $($matches.Count)" }
 
       - name: Preserve lupdate-owned catalogs
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dp-002-lupdate-catalogs-${{ github.run_id }}
           retention-days: 7
-          path: translations/patchy_*.ts
+          if-no-files-found: warn
+          path: |
+            translations/patchy_*.ts
+            configure.log
+            lupdate.log
+            build/release/CMakeFiles/CMakeConfigureLog.yaml
