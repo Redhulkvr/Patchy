@@ -31,7 +31,7 @@ jobs:
             --no-index --find-links .aqt-wheelhouse --only-binary ':all:' `
             --require-hashes -r .github-aqtinstall.lock
           .\.aqt-venv\Scripts\aqt.exe install-qt windows desktop 6.10.3 `
-            win64_msvc2022_64 -O .deps\Qt --timeout 30
+            win64_msvc2022_64 -m qtimageformats -O .deps\Qt --timeout 30
           if (-not (Test-Path .deps\Qt\6.10.3\msvc2022_64\bin\lupdate.exe)) {
             throw 'lupdate.exe missing from the pinned Qt host kit'
           }
